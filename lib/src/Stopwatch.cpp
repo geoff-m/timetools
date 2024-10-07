@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstring>
 
 #include "timetools.h"
@@ -5,23 +6,14 @@
 #include <immintrin.h>
 #include <thread>
 #include <cassert>
+#include <vector>
 
 namespace timetools {
-    uint64_t TimerFactory::estimateStartStopOverheadTsc() {
-        Stopwatch sw(getTscRateForCurrentCore(), 0);
-        constexpr int TRIALS_LOG2 = 10;
-        for (int trial = 1; trial < 1 << TRIALS_LOG2; ++trial) {
-            sw.start();
-            sw.stop();
-        }
-        return sw.elapsedTsc >> TRIALS_LOG2;
-    }
 
     TimerFactory::TimerFactory() {
         const auto coreCount = std::thread::hardware_concurrency();
         tscPerNanosecond_shl25perCore = new uint64_t[coreCount];
         std::memset(tscPerNanosecond_shl25perCore, 0, coreCount * sizeof(uint64_t));
-        startStopOverheadTsc = estimateStartStopOverheadTsc();
     }
 
     uint64_t TimerFactory::getTscRateForCurrentCore() {
@@ -40,12 +32,12 @@ namespace timetools {
 
     Stopwatch TimerFactory::createStopwatch() {
         // Assume the stopwatch will be used on the current core.
-        return Stopwatch(getTscRateForCurrentCore(), startStopOverheadTsc);
+        return Stopwatch(getTscRateForCurrentCore());
     }
 
     Waiter TimerFactory::createWaiter() {
         // Assume the waiter will be used on the current core.
-        return Waiter(getTscRateForCurrentCore(), startStopOverheadTsc);
+        return Waiter(getTscRateForCurrentCore());
     }
 
     void Stopwatch::start() {
@@ -55,14 +47,10 @@ namespace timetools {
 
     void Stopwatch::stop() {
         unsigned int stopCpu;
+        _mm_mfence();
         const auto stopTsc = __rdtscp(&stopCpu);
-        _mm_lfence();
         assert(startCpu == stopCpu); // This stopwatch is unreliable if the CPU changes.
         elapsedTsc += stopTsc - startTsc;
-        if (elapsedTsc <= overheadTsc)
-            elapsedTsc = 0;
-        else
-            elapsedTsc -= overheadTsc;
     }
 
     void Stopwatch::reset() {

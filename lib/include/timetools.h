@@ -4,6 +4,7 @@
 
 namespace timetools {
     int setThisThreadAffinity(int cpu);
+
     int setThisThreadFifoRealtimePriority(int priority);
 
     class Stopwatch;
@@ -13,18 +14,18 @@ namespace timetools {
         // core number x tscPerNanosecond_shl25
         uint64_t *tscPerNanosecond_shl25perCore;
 
-        uint64_t getTscRateForCurrentCore();
+        [[nodiscard]] uint64_t getTscRateForCurrentCore();
 
-        uint64_t startStopOverheadTsc = -1;
+        [[nodiscard]] uint64_t estimateStartStopOverheadTsc();
 
-        uint64_t estimateStartStopOverheadTsc();
+        uint64_t estimateLoopSpeed();
 
     public:
         TimerFactory();
 
-        Stopwatch createStopwatch();
+        [[nodiscard]] Stopwatch createStopwatch();
 
-        Waiter createWaiter();
+        [[nodiscard]] Waiter createWaiter();
     };
 
     class Stopwatch {
@@ -32,12 +33,9 @@ namespace timetools {
         uint64_t nanosecondPerTsc_shr16;
         uint64_t startTsc = 0;
         uint64_t elapsedTsc = 0;
-        uint64_t overheadTsc = 0;
         unsigned int startCpu;
 
-        explicit Stopwatch(uint64_t tscPerNanosecond_shl25,
-                           uint64_t overheadTsc)
-            : overheadTsc(overheadTsc) {
+        explicit Stopwatch(uint64_t tscPerNanosecond_shl25) {
             //std::cout << "Stopwatch's TSCs per nanosecond: " << (tscPerNanosecond_shl25 >> 25) << "\n";
             const auto asDouble = static_cast<double>(tscPerNanosecond_shl25);
             const auto unshifted = asDouble / (1 << 25);
@@ -59,22 +57,27 @@ namespace timetools {
     class Waiter {
         friend class TimerFactory;
         uint64_t tscPerNanosecond_shl25; // TSC per nanosecond * 2^25
-        uint64_t overheadTsc = 0;
+        uint64_t overheadTsc;
 
-        void rdtscLoopWait(uint64_t nanosecondsToWait) const;
+        void rdtscPauseLoopWait(uint64_t nanosecondsToWait) const;
+
+        void rdtscPauseUnrolledWait(uint64_t nanosecondsToWait) const;
+
+        void rdtscpWait(uint64_t nanosecondsToWait) const;
 
         void tpauseLoopWait(uint64_t nanosecondsToWait);
 
         void systemClockBusyWait(uint64_t nanosecondsToWait);
+
         void nanosleepWait(uint64_t nanosecondsToWait);
 
-        explicit Waiter(uint64_t tscPerNanosecond_shl25,
-                        uint64_t overheadTsc)
-            : tscPerNanosecond_shl25(tscPerNanosecond_shl25),
-              overheadTsc(overheadTsc) {
+        void threadSleep(uint64_t nanosecondsToWait);
+
+        explicit Waiter(uint64_t tscPerNanosecond_shl25)
+            : tscPerNanosecond_shl25(tscPerNanosecond_shl25) {
             //std::cout << "Waiter's TSCs per nanosecond: " << (tscPerNanosecond_shl25 >> 25) << "\n";
-            //std::cout << "Waiter's overhead (TSC): " << overheadTsc << "\n";
         }
+
     public:
         void busyWait(uint64_t nanosecondsToWait);
     };
